@@ -1,56 +1,43 @@
-
 name: Daily LeetCode Agent
-
-on:
+'on':
   schedule:
-    # Every day at 8:00 AM IST (02:30 UTC)
-    - cron: "30 2 * * *"
-
+    - cron: 30 2 * * *
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Test without submitting solutions"
+        description: Test without submitting solutions
         type: boolean
         required: true
         default: true
-
 permissions:
   contents: write
-
 concurrency:
   group: daily-leetcode-agent
   cancel-in-progress: false
-
 jobs:
   solve:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      LEETCODE_COOKIE: ${{ secrets.LEETCODE_COOKIE }}
-      LEETCODE_USERNAME: ${{ secrets.LEETCODE_USERNAME }}
-      PROBLEMS_PER_DAY: "3"
-      DIFFICULTIES: "EASY,MEDIUM,HARD"
-      PYTHONUNBUFFERED: "1"
-      # Safe default: never submit automatically yet.
-      DRY_RUN: "true"
-
+      OPENAI_API_KEY: '${{ secrets.OPENAI_API_KEY }}'
+      LEETCODE_COOKIE: '${{ secrets.LEETCODE_COOKIE }}'
+      LEETCODE_USERNAME: '${{ secrets.LEETCODE_USERNAME }}'
+      PROBLEMS_PER_DAY: '3'
+      DIFFICULTIES: 'EASY,MEDIUM,HARD'
+      PYTHONUNBUFFERED: '1'
+      DRY_RUN: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
           cache: pip
-
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-
       - name: Install LeetCode CLI
         shell: bash
         run: |
@@ -65,6 +52,10 @@ jobs:
           SCRIPTS_DIR="$(python -c \
             'import sysconfig; print(sysconfig.get_path("scripts"))')"
 
+          # Make the executable available to subsequent workflow steps
+          echo "$SCRIPTS_DIR" >> "$GITHUB_PATH"
+          export PATH="$SCRIPTS_DIR:$PATH"
+
           LEETCODE_BIN="$SCRIPTS_DIR/leetcode"
 
           if [ ! -x "$LEETCODE_BIN" ]; then
@@ -77,8 +68,9 @@ jobs:
 
           echo "$LEETCODE_BIN" > "$RUNNER_TEMP/leetcode-bin-path"
 
-          "$LEETCODE_BIN" --help
-
+          # Verify the command is available
+          which leetcode
+          leetcode --help
       - name: Validate secrets
         shell: bash
         run: |
@@ -100,7 +92,6 @@ jobs:
           }
 
           echo "Required secrets are present."
-
       - name: Configure LeetCode
         shell: bash
         run: |
@@ -118,21 +109,18 @@ jobs:
           "$LEETCODE_BIN" config language python >/dev/null
 
           echo "LeetCode CLI configured."
-
       - name: Run AI agent
         run: python agent.py
-
       - name: Upload daily report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: leetcode-report-${{ github.run_id }}
+          name: 'leetcode-report-${{ github.run_id }}'
           path: |
             reports/
             solutions/
           if-no-files-found: ignore
           retention-days: 14
-
       - name: Save problem history
         if: success()
         shell: bash
