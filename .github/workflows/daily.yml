@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Test only; do not submit"
+        description: "Test without submitting solutions"
         type: boolean
         required: true
         default: true
@@ -33,8 +33,8 @@ jobs:
       PROBLEMS_PER_DAY: "3"
       DIFFICULTIES: "EASY,MEDIUM,HARD"
       PYTHONUNBUFFERED: "1"
-      # Scheduled runs stay safe; manual runs honor the dry_run input.
-      DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+      # Safe default: never submit automatically yet.
+      DRY_RUN: "true"
 
     steps:
       - name: Checkout repository
@@ -52,38 +52,72 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Install LeetCode CLI
+        shell: bash
         run: |
-          git clone https://github.com/michal-pielka/leetcode_cli.git /tmp/leetcode_cli
+          set -e
+
+          git clone \
+            https://github.com/michal-pielka/leetcode_cli.git \
+            /tmp/leetcode_cli
+
           python -m pip install /tmp/leetcode_cli
-          CLI_BIN="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')/leetcode"
-          test -x "$CLI_BIN"
-          echo "LEETCODE_CLI=$CLI_BIN" >> "$GITHUB_ENV"
-          "$CLI_BIN" --help
+
+          SCRIPTS_DIR="$(python -c \
+            'import sysconfig; print(sysconfig.get_path("scripts"))')"
+
+          LEETCODE_BIN="$SCRIPTS_DIR/leetcode"
+
+          if [ ! -x "$LEETCODE_BIN" ]; then
+            echo "CLI executable was not created."
+            python -m pip show leetcode-cli || true
+            python -m pip show leetcode_cli || true
+            ls -la "$SCRIPTS_DIR"
+            exit 1
+          fi
+
+          echo "$LEETCODE_BIN" > "$RUNNER_TEMP/leetcode-bin-path"
+
+          "$LEETCODE_BIN" --help
 
       - name: Validate secrets
         shell: bash
         run: |
+          set -e
+
           test -n "$OPENAI_API_KEY" || {
             echo "Missing OPENAI_API_KEY"
             exit 1
           }
+
           test -n "$LEETCODE_COOKIE" || {
             echo "Missing LEETCODE_COOKIE"
             exit 1
           }
+
           test -n "$LEETCODE_USERNAME" || {
             echo "Missing LEETCODE_USERNAME"
             exit 1
           }
 
+          echo "Required secrets are present."
+
       - name: Configure LeetCode
         shell: bash
         run: |
+          set -e
           set +x
-          "$LEETCODE_CLI" config cookie "$LEETCODE_COOKIE" >/dev/null
-          "$LEETCODE_CLI" config username "$LEETCODE_USERNAME" >/dev/null
-          "$LEETCODE_CLI" config language python >/dev/null
-          echo "LeetCode CLI configured"
+
+          LEETCODE_BIN="$(cat "$RUNNER_TEMP/leetcode-bin-path")"
+
+          "$LEETCODE_BIN" config cookie \
+            "$LEETCODE_COOKIE" >/dev/null
+
+          "$LEETCODE_BIN" config username \
+            "$LEETCODE_USERNAME" >/dev/null
+
+          "$LEETCODE_BIN" config language python >/dev/null
+
+          echo "LeetCode CLI configured."
 
       - name: Run AI agent
         run: python agent.py
@@ -101,7 +135,10 @@ jobs:
 
       - name: Save problem history
         if: success()
+        shell: bash
         run: |
+          set -e
+
           git config user.name "github-actions[bot]"
           git config user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
