@@ -45,6 +45,8 @@ Edit environment variables in `.github/workflows/daily.yml`:
 - `DIFFICULTIES: "EASY,MEDIUM,HARD"`
 - Scheduled runs always use `DRY_RUN=true`. Manual runs use the `dry_run` workflow input;
   select `false` only after validating the workflow.
+- The workflow exports the installed LeetCode CLI's absolute path so later steps and the
+  Python agent do not depend on shell `PATH` propagation.
 
 ## Current starter status
 

@@ -55,9 +55,10 @@ jobs:
         run: |
           git clone https://github.com/michal-pielka/leetcode_cli.git /tmp/leetcode_cli
           python -m pip install /tmp/leetcode_cli
-          echo "$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')" >> "$GITHUB_PATH"
-          command -v leetcode
-          leetcode --help
+          CLI_BIN="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')/leetcode"
+          test -x "$CLI_BIN"
+          echo "LEETCODE_CLI=$CLI_BIN" >> "$GITHUB_ENV"
+          "$CLI_BIN" --help
 
       - name: Validate secrets
         shell: bash
@@ -79,9 +80,9 @@ jobs:
         shell: bash
         run: |
           set +x
-          leetcode config cookie "$LEETCODE_COOKIE" >/dev/null
-          leetcode config username "$LEETCODE_USERNAME" >/dev/null
-          leetcode config language python >/dev/null
+          "$LEETCODE_CLI" config cookie "$LEETCODE_COOKIE" >/dev/null
+          "$LEETCODE_CLI" config username "$LEETCODE_USERNAME" >/dev/null
+          "$LEETCODE_CLI" config language python >/dev/null
           echo "LeetCode CLI configured"
 
       - name: Run AI agent

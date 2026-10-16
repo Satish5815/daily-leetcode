@@ -18,10 +18,11 @@ SOLUTIONS_DIR = ROOT / "solutions"
 REPORTS_DIR = ROOT / "reports"
 LEETCODE_GRAPHQL = "https://leetcode.com/graphql"
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+LEETCODE_CLI = os.getenv("LEETCODE_CLI", "leetcode")
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() != "false"
 COUNT = max(2, min(3, int(os.getenv("PROBLEMS_PER_DAY", "3"))))
 DIFFICULTIES = [x.strip().upper() for x in os.getenv(
-    "DIFFICULTIES", "EASY,MEDIUM,HARD"
+    "DIFFICULTIES", "EASY,MEDIUM"
 ).split(",") if x.strip()]
 
 client = OpenAI()
@@ -184,7 +185,7 @@ def run_command(args: list[str], timeout: int = 180) -> subprocess.CompletedProc
 
 def create_starter(problem_id: str, slug: str) -> Path:
     before = set(ROOT.glob("*.py"))
-    result = run_command(["leetcode", "create", problem_id], timeout=120)
+    result = run_command([LEETCODE_CLI, "create", problem_id], timeout=120)
     if result.returncode != 0:
         raise RuntimeError(f"leetcode create failed: {result.stderr[-1500:]}")
     after = set(ROOT.glob("*.py"))
@@ -211,7 +212,7 @@ def test_and_maybe_submit(
     extension = {"python": "py", "javascript": "js"}[language]
     solution_path = SOLUTIONS_DIR / f"{problem_id}.{slug}.{extension}"
     solution_path.write_text(code)
-    test_result = run_command(["leetcode", "test", str(solution_path)], timeout=240)
+    test_result = run_command([LEETCODE_CLI, "test", str(solution_path)], timeout=240)
     test_output = (test_result.stdout + "\n" + test_result.stderr).strip()
     (REPORTS_DIR / f"{problem_id}.{slug}.{language}.test.log").write_text(test_output + "\n")
 
@@ -232,7 +233,7 @@ def test_and_maybe_submit(
         result["status"] = "DRY_RUN_TEST_PASSED"
         return result
 
-    submit_result = run_command(["leetcode", "submit", str(solution_path)], timeout=300)
+    submit_result = run_command([LEETCODE_CLI, "submit", str(solution_path)], timeout=300)
     submit_output = (submit_result.stdout + "\n" + submit_result.stderr).strip()
     (REPORTS_DIR / f"{problem_id}.{slug}.{language}.submit.log").write_text(submit_output + "\n")
     if submit_result.returncode == 0 and re.search(r"\bAccepted\b", submit_output, re.IGNORECASE):
