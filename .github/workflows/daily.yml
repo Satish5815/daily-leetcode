@@ -42,35 +42,11 @@ jobs:
         shell: bash
         run: |
           set -e
-
           git clone \
             https://github.com/michal-pielka/leetcode_cli.git \
             /tmp/leetcode_cli
-
           python -m pip install /tmp/leetcode_cli
-
-          SCRIPTS_DIR="$(python -c \
-            'import sysconfig; print(sysconfig.get_path("scripts"))')"
-
-          # Make the executable available to subsequent workflow steps
-          echo "$SCRIPTS_DIR" >> "$GITHUB_PATH"
-          export PATH="$SCRIPTS_DIR:$PATH"
-
-          LEETCODE_BIN="$SCRIPTS_DIR/leetcode"
-
-          if [ ! -x "$LEETCODE_BIN" ]; then
-            echo "CLI executable was not created."
-            python -m pip show leetcode-cli || true
-            python -m pip show leetcode_cli || true
-            ls -la "$SCRIPTS_DIR"
-            exit 1
-          fi
-
-          echo "$LEETCODE_BIN" > "$RUNNER_TEMP/leetcode-bin-path"
-
-          # Verify the command is available
-          which leetcode
-          leetcode --help
+          python -m leetcode_cli.cli --help
       - name: Validate secrets
         shell: bash
         run: |
@@ -97,17 +73,11 @@ jobs:
         run: |
           set -e
           set +x
-
-          LEETCODE_BIN="$(cat "$RUNNER_TEMP/leetcode-bin-path")"
-
-          "$LEETCODE_BIN" config cookie \
+          python -m leetcode_cli.cli config cookie \
             "$LEETCODE_COOKIE" >/dev/null
-
-          "$LEETCODE_BIN" config username \
+          python -m leetcode_cli.cli config username \
             "$LEETCODE_USERNAME" >/dev/null
-
-          "$LEETCODE_BIN" config language python >/dev/null
-
+          python -m leetcode_cli.cli config language python >/dev/null
           echo "LeetCode CLI configured."
       - name: Run AI agent
         run: python agent.py
