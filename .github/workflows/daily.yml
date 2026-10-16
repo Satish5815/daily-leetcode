@@ -3,15 +3,15 @@ name: Daily LeetCode Agent
 
 on:
   schedule:
-    # 8:00 AM India time = 02:30 UTC
+    # Every day at 8:00 AM IST (02:30 UTC)
     - cron: "30 2 * * *"
 
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Test without submitting solutions"
-        required: true
+        description: "Test only; do not submit"
         type: boolean
+        required: true
         default: true
 
 permissions:
@@ -33,10 +33,7 @@ jobs:
       PROBLEMS_PER_DAY: "3"
       DIFFICULTIES: "EASY,MEDIUM,HARD"
       PYTHONUNBUFFERED: "1"
-
-      # Scheduled runs default to dry-run.
-      # Manual runs use the selected dry_run input.
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'true' }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'true' }}
 
     steps:
       - name: Checkout repository
@@ -48,11 +45,17 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install leetcode-cli
+
+      - name: Install LeetCode CLI
+        run: |
+          git clone https://github.com/michal-pielka/leetcode_cli.git /tmp/leetcode_cli
+          pip install /tmp/leetcode_cli
+          command -v leetcode
+          leetcode --help
 
       - name: Validate secrets
         shell: bash
@@ -70,7 +73,7 @@ jobs:
             exit 1
           }
 
-      - name: Configure LeetCode CLI
+      - name: Configure LeetCode
         shell: bash
         run: |
           set +x
