@@ -1,6 +1,6 @@
 # Daily LeetCode AI Agent (Python)
 
-A starter project for a daily GitHub Actions workflow that selects 2–3 distinct LeetCode problems, asks an AI model for Python solutions, tests them, and submits only when the test command succeeds.
+A starter project for a daily GitHub Actions workflow that selects 2–3 distinct LeetCode problems, asks an AI model for Python and JavaScript solutions, tests them, and submits only when the test command succeeds.
 
 ## Important limitations
 
@@ -33,8 +33,8 @@ A starter project for a daily GitHub Actions workflow that selects 2–3 distinc
 
 1. Fetch public problem metadata from LeetCode's GraphQL endpoint.
 2. Select problems not present in `data/history.json` (default: Easy + Medium + Hard).
-3. Ask OpenAI for a complete Python solution.
-4. Create the LeetCode CLI starter file, replace it with the generated code, and run the CLI's example tests.
+3. Ask OpenAI for complete Python and JavaScript solutions.
+4. Save both generated files and run the CLI's example tests for each language.
 5. Submit only if the test command exits successfully and `DRY_RUN` is false.
 6. Save generated solutions and a daily report as a workflow artifact; update history.
 
@@ -43,7 +43,8 @@ A starter project for a daily GitHub Actions workflow that selects 2–3 distinc
 Edit environment variables in `.github/workflows/daily.yml`:
 - `PROBLEMS_PER_DAY: "3"` (allowed values: 2 or 3)
 - `DIFFICULTIES: "EASY,MEDIUM,HARD"`
-- `DRY_RUN: "true"` initially; change to `"false"` only after validating the workflow.
+- Scheduled runs always use `DRY_RUN=true`. Manual runs use the `dry_run` workflow input;
+  select `false` only after validating the workflow.
 
 ## Current starter status
 

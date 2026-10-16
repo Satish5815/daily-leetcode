@@ -125,23 +125,39 @@ def fetch_detail(slug: str) -> dict:
     return question
 
 
-def generate_solution(problem: dict) -> str:
+def generate_solution(problem: dict, language: str) -> str:
     snippets = problem.get("codeSnippets") or []
-    python_snippet = next((s.get("code", "") for s in snippets if s.get("langSlug") == "python3"), "")
-    if not python_snippet:
-        python_snippet = next((s.get("code", "") for s in snippets if s.get("langSlug") == "python"), "")
+    language_config = {
+        "python": {
+            "slugs": ("python3", "python"),
+            "extension": "py",
+            "name": "Python",
+        },
+        "javascript": {
+            "slugs": ("javascript",),
+            "extension": "js",
+            "name": "JavaScript",
+        },
+    }[language]
+    starter = next(
+        (s.get("code", "") for s in snippets if s.get("langSlug") in language_config["slugs"]),
+        "",
+    )
+    if not starter:
+        raise RuntimeError(f"LeetCode did not provide a {language_config['name']} starter.")
 
     prompt = f"""
-You are a careful LeetCode Python solver. Return ONLY a complete Python solution file.
-Use the exact LeetCode method/class signature from the starter snippet. Do not include
+You are a careful LeetCode {language_config['name']} solver. Return ONLY a complete
+{language_config['name']} solution file.
+Use the exact LeetCode method/function signature from the starter snippet. Do not include
 Markdown fences, prose, input parsing, or a main block. Prefer an efficient, correct
 algorithm. Do not use external packages. Problem: {problem.get('title')}
 ID: {problem.get('questionFrontendId')}
 Difficulty: {problem.get('difficulty')}
 Statement HTML:
 {problem.get('content', '')}
-Official Python starter:
-{python_snippet}
+Official {language_config['name']} starter:
+{starter}
 """
     response = client.responses.create(
         model=MODEL,
@@ -149,11 +165,14 @@ Official Python starter:
         temperature=0.1,
     )
     code = response.output_text.strip()
-    code = re.sub(r"^```(?:python)?\s*", "", code)
+    code = re.sub(r"^```(?:python|javascript|js)?\s*", "", code)
     code = re.sub(r"\s*```$", "", code)
-    if "class Solution" not in code:
-        raise RuntimeError("AI output did not contain a LeetCode Solution class.")
-    compile(code, "<generated-solution>", "exec")
+    if language == "python":
+        if "class Solution" not in code:
+            raise RuntimeError("AI output did not contain a LeetCode Solution class.")
+        compile(code, "<generated-solution>", "exec")
+    elif not code:
+        raise RuntimeError("AI output was empty.")
     return code + "\n"
 
 
@@ -183,6 +202,46 @@ def create_starter(problem_id: str, slug: str) -> Path:
     )
 
 
+def test_and_maybe_submit(
+    problem_id: str,
+    slug: str,
+    code: str,
+    language: str,
+) -> dict:
+    extension = {"python": "py", "javascript": "js"}[language]
+    solution_path = SOLUTIONS_DIR / f"{problem_id}.{slug}.{extension}"
+    solution_path.write_text(code)
+    test_result = run_command(["leetcode", "test", str(solution_path)], timeout=240)
+    test_output = (test_result.stdout + "\n" + test_result.stderr).strip()
+    (REPORTS_DIR / f"{problem_id}.{slug}.{language}.test.log").write_text(test_output + "\n")
+
+    explicit_pass = bool(re.search(
+        r"(all test cases passed|all tests passed|accepted|passed all test cases)",
+        test_output, re.IGNORECASE
+    ))
+    explicit_fail = bool(re.search(
+        r"(wrong answer|time limit exceeded|runtime error|compile error|failed|error:)",
+        test_output, re.IGNORECASE
+    ))
+    result = {"language": language}
+    if test_result.returncode != 0 or not explicit_pass or explicit_fail:
+        result.update(status="TEST_FAILED_OR_UNCONFIRMED", details=test_output[-1200:])
+        return result
+
+    if DRY_RUN:
+        result["status"] = "DRY_RUN_TEST_PASSED"
+        return result
+
+    submit_result = run_command(["leetcode", "submit", str(solution_path)], timeout=300)
+    submit_output = (submit_result.stdout + "\n" + submit_result.stderr).strip()
+    (REPORTS_DIR / f"{problem_id}.{slug}.{language}.submit.log").write_text(submit_output + "\n")
+    if submit_result.returncode == 0 and re.search(r"\bAccepted\b", submit_output, re.IGNORECASE):
+        result.update(status="SUBMITTED_CHECK_RESULT", details=submit_output[-1200:])
+    else:
+        result.update(status="SUBMIT_FAILED", details=submit_output[-1200:])
+    return result
+
+
 def process_problem(problem: dict, history: dict, report: list[dict]) -> None:
     problem_id = str(problem["questionFrontendId"])
     slug = problem["titleSlug"]
@@ -193,53 +252,30 @@ def process_problem(problem: dict, history: dict, report: list[dict]) -> None:
 
     try:
         detail = fetch_detail(slug)
-        code = generate_solution(detail)
         SOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
-        solution_path = SOLUTIONS_DIR / f"{problem_id}.{slug}.py"
-        solution_path.write_text(code)
-
-        # The CLI test command uses LeetCode's example test cases.
-        test_result = run_command(["leetcode", "test", str(solution_path)], timeout=240)
-        test_output = (test_result.stdout + "\n" + test_result.stderr).strip()
-        (REPORTS_DIR / f"{problem_id}.{slug}.test.log").write_text(test_output + "\n")
-
-        # Fail closed: CLI versions differ, so require an explicit success marker.
-        explicit_pass = bool(re.search(
-            r"(all test cases passed|all tests passed|accepted|passed all test cases)",
-            test_output, re.IGNORECASE
-        ))
-        explicit_fail = bool(re.search(
-            r"(wrong answer|time limit exceeded|runtime error|compile error|failed|error:)",
-            test_output, re.IGNORECASE
-        ))
-        if test_result.returncode != 0 or not explicit_pass or explicit_fail:
-            item.update(
-                status="TEST_FAILED_OR_UNCONFIRMED",
-                details=test_output[-1200:],
-            )
+        language_results = []
+        for language in ("python", "javascript"):
+            code = generate_solution(detail, language)
+            language_results.append(test_and_maybe_submit(
+                problem_id, slug, code, language,
+            ))
+        item["languages"] = language_results
+        if any(result["status"] not in {"DRY_RUN_TEST_PASSED", "SUBMITTED_CHECK_RESULT"}
+               for result in language_results):
+            item["status"] = "LANGUAGE_FAILED"
             history.setdefault("attempted", []).append(problem_id)
             report.append(item)
             return
 
-        item["tests"] = "CLI emitted an explicit success marker; inspect test log to confirm test counts."
         if DRY_RUN:
             item["status"] = "DRY_RUN_TEST_PASSED"
             report.append(item)
             return
 
-        submit_result = run_command(["leetcode", "submit", str(solution_path)], timeout=300)
-        submit_output = (submit_result.stdout + "\n" + submit_result.stderr).strip()
-        (REPORTS_DIR / f"{problem_id}.{slug}.submit.log").write_text(submit_output + "\n")
-        if submit_result.returncode == 0:
-            item.update(status="SUBMITTED_CHECK_RESULT", details=submit_output[-1200:])
-            # Do not mark as completed solely from a zero exit code; CLI output
-            # may indicate Wrong Answer or Pending. Verify the report/result.
-            if re.search(r"\bAccepted\b", submit_output, re.IGNORECASE):
-                history.setdefault("completed", []).append(problem_id)
-            else:
-                history.setdefault("attempted", []).append(problem_id)
+        item["status"] = "SUBMITTED_CHECK_RESULT"
+        if all(result["status"] == "SUBMITTED_CHECK_RESULT" for result in language_results):
+            history.setdefault("completed", []).append(problem_id)
         else:
-            item.update(status="SUBMIT_FAILED", details=submit_output[-1200:])
             history.setdefault("attempted", []).append(problem_id)
         report.append(item)
     except Exception as exc:
